@@ -1,0 +1,273 @@
+syntax = "proto3";
+package protos;
+option go_package = "black-friday/api";
+import "google/protobuf/any.proto";
+
+// This file defines the API that a kata needs to implement.
+// It uses Google Proto/RPC, so you should be able to generate concrete
+// types in your favorite language.
+
+// API covers: requests, responses, API definition and events.
+
+// rinat: pre-generate scaffolding in some langs and setup github templates?
+
+// we need to fix these contracts upfront, because spec tester and load tester
+// will use them to verify behaviors
+
+
+// 1. SPECIFICATION TEST INTERFACE -----------------
+// This is a special interface that your kata needs to expose in testing mode
+
+// Tester tool will call it with SpecRequest that has:
+// - given - list of events that describe the state
+// - when - request to be executed (wrapped with google.protobuf.Any)
+
+// The response will include:
+// - response - only if there is no error
+// - events - new events that were applied during the call
+// - status - response status code that matches google.rpc.Code
+// - error - logical error to help in debugging
+
+// spec tester checks only response, events and status. It doesn't test error
+
+message SpecRequest {
+  // a list of given events
+  repeated google.protobuf.Any given = 1;
+  // request that we are testing
+  google.protobuf.Any when = 2;
+  // Next sequential UID to use for logic in test mode
+  string NextUid = 3;
+}
+
+message SpecResponse {
+  // actual response. Must be nil on error
+  google.protobuf.Any response = 1;
+  // list of events that were produced by the aggregate
+  repeated google.protobuf.Any events = 2;
+  // status code maps to [google.rpc.Code][google.rpc.Code]
+  int32 status = 3;
+  // logical error in english
+  string error = 4;
+}
+
+message AboutRequest{ }
+message AboutResponse {
+  string author = 1;
+  string detail = 2;
+  string contact = 3;
+}
+
+service SpecService {
+  // Polite spec tester lets kata tell about it and its author
+  rpc About(AboutRequest) returns (AboutResponse);
+  // Spec subject will run this request in isolation
+  rpc Spec(SpecRequest) returns (SpecResponse);
+}
+
+
+// 2. INVENTORY INTERFACE!
+
+// here is the actual domain interface! Methods include:
+
+// AddLocations - can create entire warehouse in one go
+// AddProducts - can create multiple products at once
+// ListLocations - fetches a location tree, starting from some point
+// MoveLocation - moves location and everything it contains
+// UpdateInventory - method used to put things and remove things
+// GetLocInventory - grab aggregate inventory for a location
+// Reserve - place a reservation for some products at a location
+
+
+
+
+// locations are nested and could be bulk-added
+message AddLocationsReq {
+  message Loc {
+    string name = 1;
+    repeated Loc locs = 4;
+  }
+
+  repeated Loc locs = 1;
+
+  // UID of a parent location
+  string parent = 2;
+}
+
+message AddLocationsResp {
+  message Loc {
+    string name = 1;
+    string uid = 2;
+    string parent = 3;
+
+    repeated Loc locs = 4;
+  }
+  repeated Loc locs = 1;
+}
+
+message LocationAdded {
+  string uid = 1;
+  string name = 2;
+  //LocType type = 3;
+
+  // added later
+  string parent = 4;
+}
+
+message LocationMoved {
+  string uid = 1;
+  string oldParent = 2;
+  string newParent = 3;
+}
+
+message MoveLocationReq {
+  string uid = 1;
+  string newParent = 2;
+}
+
+message MoveLocationResp { }
+
+
+message AddProductsReq {
+  repeated string skus = 1;
+}
+
+
+message AddProductsResp {
+  repeated string uids = 2;
+}
+
+message ProductAdded {
+  string uid = 1;
+  string sku = 2;
+}
+
+message UpdateInventoryReq {
+  string location = 1;
+  string product = 2;
+  int64 OnHandChange = 3;
+}
+
+
+message UpdateInventoryResp {
+  int64 OnHand = 1;
+}
+
+message InventoryUpdated{
+  string location = 1;
+  string product = 2;
+  int64 OnHandChange = 3;
+  int64 OnHand = 4;
+}
+
+message ListLocationsReq {
+  string location = 1;
+}
+
+message ListLocationsResp {
+  message Loc {
+    string name = 1;
+    //LocType type = 2;
+    string uid = 3;
+    string parent = 4;
+
+    repeated Loc chidren = 5;
+  }
+  repeated Loc locs = 1;
+
+}
+
+
+
+message GetLocInventoryReq {
+  string location = 1;
+}
+
+// this counts nested locations
+message GetLocInventoryResp {
+
+  message Item {
+    string Product = 1;
+    int64 OnHand = 2;
+    int64 Available = 3;
+  }
+
+  repeated Item items = 1;
+}
+
+message ReserveReq {
+  string reservation = 1;
+
+  message Item {
+    string sku = 1;
+    int64 quantity = 2;
+  }
+
+  repeated Item items = 2;
+  map<string,string> tags = 3;
+  string location = 4;
+}
+
+
+message ReserveResp {
+  string reservation = 1;
+}
+
+message Reserved {
+  string reservation = 1;
+  string code = 2;
+
+  message Item {
+    string product = 1;
+    int64 quantity = 2;
+    string location = 3;
+  }
+
+  repeated Item items = 4;
+}
+
+message FulfillReq{
+  string reservation = 1;
+
+  message Item {
+    string product = 1;
+    string location = 2;
+    int64 quantity = 3;
+  }
+  repeated Item items = 2;
+}
+
+message FulfillResp {}
+
+message Fulfilled {
+  string reservation = 1;
+
+  message Item {
+    string product = 1;
+    string location = 2;
+    int64 removed = 3;
+    int64 onHand = 4;
+  }
+  repeated Item items = 2;
+}
+
+message Cancelled {
+  string reservation = 1;
+  message Item {
+    string product = 1;
+    string location = 2;
+    int64 released = 3;
+  }
+  repeated Item items = 2;
+}
+
+
+service InventoryService {
+  rpc AddLocations(AddLocationsReq) returns (AddLocationsResp);
+  rpc AddProducts(AddProductsReq) returns (AddProductsResp);
+  rpc ListLocations(ListLocationsReq) returns (ListLocationsResp);
+  rpc MoveLocation(MoveLocationReq) returns (MoveLocationResp);
+  rpc UpdateInventory(UpdateInventoryReq) returns (UpdateInventoryResp);
+  rpc GetLocInventory(GetLocInventoryReq) returns (GetLocInventoryResp);
+  rpc Reserve(ReserveReq) returns (ReserveResp);
+  rpc Fulfill(FulfillReq) returns (FulfillResp);
+}
